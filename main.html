@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Betting Arbitrage Calculator</title>
+<style>
+body {
+font-family: Arial, sans-serif;
+max-width: 900px;
+margin: 0 auto;
+padding: 20px;
+ }
+.bookmaker {
+border: 1px solid #ddd;
+padding: 15px;
+margin-bottom: 15px;
+position: relative;
+ }
+.bookmaker-header {
+display: flex;
+align-items: center;
+margin-bottom: 10px;
+ }
+.bookmaker-name {
+flex-grow: 1;
+margin-right: 10px;
+ }
+.bookmaker-name input {
+width: 100%;
+padding: 5px;
+ }
+.delete-bookmaker, .delete-event, .edit-bookmaker-name {
+background: red;
+color: white;
+border: none;
+padding: 2px 6px;
+cursor: pointer;
+margin-left: 5px;
+ }
+.edit-bookmaker-name {
+background: blue;
+ }
+.delete-bookmaker {
+position: absolute;
+top: 10px;
+right: 10px;
+ }
+.event-wrapper {
+display: flex;
+align-items: center;
+margin: 5px 0;
+ }
+.event-label {
+margin-right: 10px;
+min-width: 80px;
+ }
+.additional-info {
+display: flex;
+gap: 10px;
+margin-top: 10px;
+ }
+input {
+flex-grow: 1;
+margin-right: 5px;
+padding: 5px;
+ }
+button {
+margin: 10px 0;
+padding: 5px 10px;
+ }
+#result {
+margin-top: 20px;
+font-weight: bold;
+ }
+.arbitrage-details {
+margin-top: 10px;
+background-color: #f0f0f0;
+padding: 10px;
+border-radius: 5px;
+ }
+.best-odds {
+font-weight: bold;
+color: green;
+ }
+.roi-explanation {
+margin-top: 10px;
+background-color: #e6f3e6;
+padding: 10px;
+border-radius: 5px;
+ }
+.charge-type {
+display: flex;
+align-items: center;
+gap: 5px;
+ }
+
+
+.form-container {
+		max-width: 400px;
+		margin: 20px auto;
+		padding: 20px;
+		border: 1px solid #ddd;
+		border-radius: 5px;
+	}
+	.input-group {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-bottom: 10px;
+	}
+	#stakeInput:disabled {
+		background-color: #f0f0f0;
+		cursor: not-allowed;
+</style>
+</head>
+<body>
+<h1>Betting Arbitrage Calculator</h1>
+<div id="bookmakers"></div>
+<button onclick="addBookmaker()">+ Add Bookmaker</button>
+
+<!-- 
+	this is button for getting input from user for stake amount
+ -->
+
+ <div class="form-container">
+        <label for="stakeInput">Stake (Bet amount) per Bookmaker:</label>
+        <div class="input-group">
+            <input 
+                type="number" 
+                id="stakeInput" 
+                placeholder="Enter stake amount"
+            >
+            <input 
+                type="checkbox" 
+                id="autoFillCheckbox"
+            >
+            <label for="autoFillCheckbox">Auto-fill Max</label>
+        </div>
+        <p id="autoFillMessage" style="display:none; color: #666;">
+            Automatically filled with wallet balance: $<span id="walletBalanceSpan"></span>
+        </p>
+    </div>
+
+<button onclick="calculateArbitrage()">Calculate Arbitrage</button>
+<div id="result"></div>
+<script>
+let bookmakerCount = 0;
+function addBookmaker() {
+bookmakerCount++;
+const bookmakersDiv = document.getElementById('bookmakers');
+// Determine the number of existing events in other bookmakers
+const existingBookmakers = document.querySelectorAll('.bookmaker');
+const eventCount = existingBookmakers.length > 0
+? existingBookmakers[0].querySelectorAll('.event-wrapper').length
+: 1;
+const bookmakerDiv = document.createElement('div');
+bookmakerDiv.className = 'bookmaker';
+bookmakerDiv.innerHTML = `
+ <button class="delete-bookmaker" onclick="deleteBookmaker(this)">×</button>
+ <div class="bookmaker-header">
+ <div class="bookmaker-name">
+ <input type="text" value="Bookmaker ${bookmakerCount}" readonly>
+ </div>
+ <button class="edit-bookmaker-name" onclick="toggleBookmakerNameEdit(this)">Edit</button>
+ </div>
+ <div class="events">
+ ${Array.from({length: eventCount}, (_, i) => `
+ <div class="event-wrapper">
+ <div class="event-label">Event ${i + 1} Odds:</div>
+ <input type="number" step="0.01" placeholder="Enter odds">
+ <button class="delete-event" onclick="deleteEvent(this)">×</button>
+ </div>
+ `).join('')}
+ <button onclick="addEvent(this)">+ Add Event</button>
+ </div>
+ <div class="additional-info">
+ <input type="number" class="wallet-balance" placeholder="Wallet Balance (₹)">
+ <div class="charge-type">
+ <select class="charge-type-select">
+ <option value="flat">Flat Fee</option>
+ <option value="percentage">Percentage</option>
+ </select>
+ <input type="number" step="0.01" class="charges" placeholder="Charges">
+ </div>
+ </div>
+ `;
+bookmakersDiv.appendChild(bookmakerDiv);
+ }
+function toggleBookmakerNameEdit(button) {
+const bookmakerHeader = button.closest('.bookmaker-header');
+const nameInput = bookmakerHeader.querySelector('.bookmaker-name input');
+if (nameInput.readOnly) {
+// Switch to edit mode
+nameInput.readOnly = false;
+nameInput.focus();
+button.textContent = 'Save';
+ } else {
+// Switch to read-only mode
+nameInput.readOnly = true;
+button.textContent = 'Edit';
+ }
+ }
+function addEvent(button) {
+// Get all bookmaker divs
+const bookmakerDivs = document.querySelectorAll('.bookmaker');
+// Find the total current event count across all bookmakers
+const totalEventCount = bookmakerDivs[0].querySelectorAll('.event-wrapper').length + 1;
+// Add event to each bookmaker
+bookmakerDivs.forEach(bookmaker => {
+const bookmakerEventsDiv = bookmaker.querySelector('.events');
+// Create event wrapper
+const eventWrapper = document.createElement('div');
+eventWrapper.className = 'event-wrapper';
+eventWrapper.innerHTML = `
+ <div class="event-label">Event ${totalEventCount} Odds:</div>
+ <input type="number" step="0.01" placeholder="Enter odds">
+ <button class="delete-event" onclick="deleteEvent(this)">×</button>
+ `;
+// Insert before the '+ Add Event' button
+const addEventButton = bookmakerEventsDiv.querySelector('button[onclick^="addEvent"]');
+bookmakerEventsDiv.insertBefore(eventWrapper, addEventButton);
+ });
+ }
+function deleteBookmaker(button) {
+const bookmakerToDelete = button.closest('.bookmaker');
+bookmakerToDelete.remove();
+ }
+function deleteEvent(button) {
+// Get the index of the event to delete
+const eventWrapper = button.closest('.event-wrapper');
+const eventsDiv = eventWrapper.parentNode;
+const eventWrappers = eventsDiv.querySelectorAll('.event-wrapper');
+const eventIndex = Array.from(eventWrappers).indexOf(eventWrapper);
+// Prevent deleting if only one event remains
+if (eventWrappers.length <= 1) {
+alert("You must have at least one event per bookmaker.");
+return;
+ }
+// Remove the event from all bookmakers
+const bookmakerDivs = document.querySelectorAll('.bookmaker');
+bookmakerDivs.forEach(bookmaker => {
+const bookmakerEventsDiv = bookmaker.querySelector('.events');
+const eventWrappers = bookmakerEventsDiv.querySelectorAll('.event-wrapper');
+eventWrappers[eventIndex].remove();
+ });
+ }
+function calculateArbitrage() {
+const bookmakers = document.querySelectorAll('.bookmaker');
+const resultDiv = document.getElementById('result');
+// Collect comprehensive bookmaker details
+const bookmakerDetails = [];
+bookmakers.forEach((bookmaker) => {
+// Get bookmaker name
+const bookmakerName = bookmaker.querySelector('.bookmaker-name input').value;
+const eventInputs = bookmaker.querySelectorAll('.event-wrapper input[type="number"]');
+const walletBalance = parseFloat(bookmaker.querySelector('.wallet-balance').value) || 0;
+const chargeTypeSelect = bookmaker.querySelector('.charge-type-select');
+const chargeType = chargeTypeSelect.value;
+const chargeValue = parseFloat(bookmaker.querySelector('.charges').value) || 0;
+const bookmakerEvents = [];
+eventInputs.forEach((input, eventIndex) => {
+const odds = parseFloat(input.value);
+if (!isNaN(odds)) {
+bookmakerEvents.push({
+eventIndex: eventIndex + 1,
+odds: odds
+ });
+ }
+ });
+bookmakerDetails.push({
+name: bookmakerName,
+events: bookmakerEvents,
+walletBalance: walletBalance,
+chargeType: chargeType,
+chargeValue: chargeValue
+ });
+ });
+// Validate that all bookmakers have the same number of events
+const eventCounts = bookmakerDetails.map(bm => bm.events.length);
+if (new Set(eventCounts).size > 1) {
+resultDiv.innerHTML = 'Error: All bookmakers must have the same number of events';
+return;
+ }
+// Complex Arbitrage Calculation
+function calculateOptimalBets(bookmakerDetails) {
+const numEvents = bookmakerDetails[0].events.length;
+let bestStrategy = null;
+let maxProfit = -Infinity;
+
+
+// Try betting the entire wallet balance of the bookmaker with least funds
+const minWalletBalance = parseFloat(document.getElementById('stakeInput').value) || 0;
+console.log(minWalletBalance,"minWalletBalance");
+
+// Recursive function to try different bet distributions
+function tryBetDistribution(currentDistribution, remainingBookmakers) {
+if (remainingBookmakers.length === 0) {
+// Validate and calculate profit for this distribution
+let totalInvestment = 0;
+let potentialReturns = new Array(numEvents).fill(0);
+currentDistribution.forEach((betAmount, bookmakerIndex) => {
+const bookmaker = bookmakerDetails[bookmakerIndex];
+totalInvestment += betAmount;
+// Apply charges
+let effectiveBetAmount = betAmount;
+if (bookmaker.chargeType === 'flat') {
+effectiveBetAmount = Math.max(0, betAmount - bookmaker.chargeValue);
+ } else if (bookmaker.chargeType === 'percentage') {
+effectiveBetAmount = betAmount * (1 - bookmaker.chargeValue / 100);
+ }
+// Calculate potential return for each event
+bookmaker.events.forEach((event, eventIndex) => {
+potentialReturns[eventIndex] += effectiveBetAmount * event.odds;
+ });
+ });
+// Check if all returns are close to each other
+const maxReturn = Math.max(...potentialReturns);
+const minReturn = Math.min(...potentialReturns);
+const tolerance = 0.01; // 1% tolerance
+if (Math.abs(maxReturn - minReturn) / maxReturn < tolerance) {
+const profit = maxReturn - totalInvestment;
+if (profit > maxProfit) {
+maxProfit = profit;
+bestStrategy = {
+distribution: currentDistribution,
+totalInvestment: totalInvestment,
+potentialReturns: potentialReturns,
+profit: profit
+ };
+ }
+ }
+return;
+ }
+// Try different bet amounts for this bookmaker
+const currentBookmaker = remainingBookmakers[0];
+const walletBalance = currentBookmaker.walletBalance;
+for (let betAmount = 0; betAmount <= walletBalance; betAmount += 10) {
+const newDistribution = [...currentDistribution, betAmount];
+tryBetDistribution(newDistribution, remainingBookmakers.slice(1));
+ }
+ }
+// Start the distribution search
+tryBetDistribution([], bookmakerDetails);
+return bestStrategy;
+ }
+// Perform the calculation
+const arbitrageResult = calculateOptimalBets(bookmakerDetails);
+// Display results
+if (arbitrageResult) {
+let resultHTML = `
+ <div class="arbitrage-details">
+ <h3>Arbitrage Opportunity Found!</h3>
+ <div class="roi-explanation">
+ <h4>Bet Distribution:</h4>
+ `;
+arbitrageResult.distribution.forEach((betAmount, index) => {
+const bookmaker = bookmakerDetails[index];
+resultHTML += `
+ <p>
+ <strong>${bookmaker.name}:</strong>
+ Bet ₹${betAmount.toFixed(2)} on Eventxyz
+ (Wallet Balance: ₹${bookmaker.walletBalance.toFixed(2)},
+ Charge Type: ${bookmaker.chargeType},
+ Charge Value: ${bookmaker.chargeValue})
+ </p>
+ `;
+ });
+resultHTML += `
+ <h4>Calculation Results:</h4>
+ <p>Total Investment: ₹${arbitrageResult.totalInvestment.toFixed(2)}</p>
+ <p>Potential Returns: ${arbitrageResult.potentialReturns.map(r => `₹${r.toFixed(2)}`).join(', ')}</p>
+ <p>Net Profit: ₹${arbitrageResult.profit.toFixed(2)}</p>
+ <p>ROI: ${((arbitrageResult.profit / arbitrageResult.totalInvestment) * 100).toFixed(2)}%</p>
+ </div>
+ </div>
+ `;
+resultDiv.innerHTML = resultHTML;
+ } else {
+resultDiv.innerHTML = 'No arbitrage opportunity found';
+ }
+ }
+// Add initial bookmakers
+addBookmaker();
+addBookmaker();
+
+
+
+
+// Function to collect bookmaker details
+function collectBookmakerDetails() {
+    const bookmakers = document.querySelectorAll('.bookmaker');
+    const bookmakerDetails = [];
+
+    bookmakers.forEach((bookmaker) => {
+        const bookmakerName = bookmaker.querySelector('.bookmaker-name input').value;
+        const walletBalance = parseFloat(bookmaker.querySelector('.wallet-balance').value) || 0;
+
+        bookmakerDetails.push({
+            name: bookmakerName,
+            walletBalance: walletBalance
+        });
+    });
+
+    return bookmakerDetails;
+}
+
+// Function to find the minimum wallet balance among bookmakers
+function findMinWalletBalance() {
+    // Collect bookmaker details each time the function is called
+    const bookmakerDetails = collectBookmakerDetails();
+    
+    // If no bookmakers or all balances are 0, return 0
+    if (bookmakerDetails.length === 0) return 0;
+    
+    const walletBalances = bookmakerDetails.map(bookmaker => bookmaker.walletBalance);
+    
+    // Return the minimum balance, or 0 if all balances are 0
+    return Math.min(...walletBalances);
+}
+
+// Event listener for checkbox
+autoFillCheckbox.addEventListener('change', function() {
+    if (this.checked) {
+        // Find the minimum wallet balance
+        const minBalance = findMinWalletBalance();
+        
+        // Set the stake input to the minimum balance
+        stakeInput.value = minBalance;
+        stakeInput.disabled = true;
+        
+        // Show auto-fill message
+        walletBalanceSpan.textContent = minBalance;
+        autoFillMessage.style.display = 'block';
+    } else {
+        // Enable input and clear value
+        stakeInput.value = '';
+        stakeInput.disabled = false;
+        
+        // Hide auto-fill message
+        autoFillMessage.style.display = 'none';
+    }
+});
+</script>
+</body>
+</html>
